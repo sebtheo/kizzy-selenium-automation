@@ -55,10 +55,10 @@ The Kizzy Bot is designed to automate various tasks on the Kizzy testnet platfor
    make install
    ```
 
-3. Run this command, then login to your Kizzy account in the browser window
+3. Run this command, enter the name of the account, then login to your Kizzy account in the browser window
 
    ```bash
-   make save-cookies
+   make save
    ```
 
 4. If you have multiple files, rename the `kizzy/data/cookies.pkl` to `kizzy/data/<account_name>.pkl`

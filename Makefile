@@ -13,7 +13,7 @@ run:
 	poetry run python kizzy/main.py
 
 # Save cookies
-save-cookies:
+save:
 	poetry run python kizzy/save_cookies.py
 
 # Check code style
