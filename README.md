@@ -140,6 +140,23 @@ kizzy/
 - **Error Recovery**: Continues operation even if individual bets fail
 - **Resource Cleanup**: Ensures browser instances are properly closed
 
+## Troubleshooting
+
+### Mismatch between Chrome version and ChromeDriver version
+
+Error:
+
+- `Message: session not created: cannot connect to chrome at 127.0.0.1:56001
+from session not created: This version of ChromeDriver only supports Chrome version 139
+Current browser version is 138.0.7204.184`
+
+Resolution:
+
+- The package `undetected-chromedriver` is used to attempt to bypass the bot protection. The browser is designed to auto-manage
+  the driver for you, by using the latest chrome for best security and compatibility. However, if your local chrome is not up to date,
+  you may need to go to [chrome://settings/help](chrome://settings/help) and update your chrome browser to the latest version.
+- If you are using a different browser, you may need to install the correct version of the driver for your browser.
+
 ## Disclaimer
 
 This tool is for educational and automation purposes only. Users are responsible for:
