@@ -8,6 +8,7 @@ def save_cookies():
     """
     Save cookies from the browser to a pickle file.
     """
+    name = input("Enter the name of the account: ")
     driver = uc.Chrome()
     try:
         driver.get("https://testnet.kizzy.io/login")
@@ -17,7 +18,7 @@ def save_cookies():
         time.sleep(2)
         cookies = driver.get_cookies()
         os.makedirs("kizzy/data", exist_ok=True)
-        with open("kizzy/data/cookies.pkl", "wb") as f:
+        with open(f"kizzy/data/{name}.pkl", "wb") as f:
             pickle.dump(cookies, f)
         print("Cookies saved successfully!")
     except Exception as e:
