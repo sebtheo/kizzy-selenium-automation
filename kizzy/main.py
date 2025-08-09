@@ -98,21 +98,28 @@ class KizzyBot:
             Dict: The authentication data as a dictionary.
         """
         script = f"""
-        return fetch("{self.auth_endpoint}", {{
-            method: "GET",
-            credentials: "include"
-        }}).then(function(r) {{
-            if (!r.ok) {{
-                throw new Error("HTTP " + r.status + ": " + r.statusText);
-            }}
-            return r.text().then(function(text) {{
+        const urls = [
+            "{self.auth_endpoint}",
+            "/app/auth",
+            "https://rest-api.kizzy.io/app/auth"
+        ];
+        return (async function() {{
+            for (const url of urls) {{
                 try {{
-                    return JSON.parse(text);
+                    const r = await fetch(url, {{ method: "GET", credentials: "include" }});
+                    if (!r.ok) continue;
+                    const text = await r.text();
+                    try {{
+                        return JSON.parse(text);
+                    }} catch (e) {{
+                        continue;
+                    }}
                 }} catch (e) {{
-                    throw new Error("Invalid JSON response: " + text.substring(0, 200) + "...");
+                    continue;
                 }}
-            }});
-        }});
+            }}
+            throw new Error("All auth endpoints failed");
+        }})();
         """
         try:
             return self.driver.execute_script(script)
@@ -130,23 +137,31 @@ class KizzyBot:
         Returns:
             Dict: The pools data as a dictionary.
         """
-        endpoint = f"/api/v2/pvp/{platform}"
         script = f"""
-        return fetch("{endpoint}", {{
-            method: "GET",
-            credentials: "include"
-        }}).then(function(r) {{
-            if (!r.ok) {{
-                throw new Error("HTTP " + r.status + ": " + r.statusText);
-            }}
-            return r.text().then(function(text) {{
+        const urls = [
+            "https://rest-api.kizzy.io/app/pvp/{platform}",
+            "https://rest-api.kizzy.io/api/v2/pvp/{platform}",
+            "https://testnet.kizzy.io/api/v2/pvp/{platform}"
+        ];
+        return (async function() {{
+            for (const url of urls) {{
                 try {{
-                    return JSON.parse(text);
+                    const r = await fetch(url, {{ method: "GET", credentials: "include" }});
+                    if (!r.ok) continue;
+                    const text = await r.text();
+                    try {{
+                        return JSON.parse(text);
+                    }} catch (e) {{
+                        // try next endpoint
+                        continue;
+                    }}
                 }} catch (e) {{
-                    throw new Error("Invalid JSON response: " + text.substring(0, 200) + "...");
+                    // try next endpoint
+                    continue;
                 }}
-            }});
-        }});
+            }}
+            throw new Error("All pool endpoints failed for {platform}");
+        }})();
         """
         try:
             return self.driver.execute_script(script)
@@ -168,26 +183,53 @@ class KizzyBot:
         """
         payload = {"amount": amount, "parimutuelPoolID": pool_id, "side": side}
         script = f"""
-        return fetch("https://rest-api.kizzy.io/app/place-bet-pvp/{pool_id}", {{
-            method: "POST",
-            credentials: "include",
-            headers: {{
-                "accept": "*/*",
-                "content-type": "application/json"
-            }},
-            body: JSON.stringify({json.dumps(payload)})
-        }}).then(function(r) {{
-            if (!r.ok) {{
-                throw new Error("HTTP " + r.status + ": " + r.statusText);
-            }}
-            return r.text().then(function(text) {{
-                try {{
-                    return JSON.parse(text);
-                }} catch (e) {{
-                    throw new Error("Invalid JSON response: " + text.substring(0, 200) + "...");
+        const body = {json.dumps(payload)};
+        const candidates = [
+            {{
+                url: "https://rest-api.kizzy.io/app/place-bet-pvp/{pool_id}",
+                options: {{
+                    method: "POST",
+                    credentials: "include",
+                    headers: {{ "accept": "*/*", "content-type": "application/json" }},
+                    body: JSON.stringify(body)
                 }}
-            }});
-        }});
+            }},
+            {{
+                url: "https://testnet.kizzy.io/api/v2/place-bet/pvp/{pool_id}",
+                options: {{
+                    method: "POST",
+                    credentials: "include",
+                    headers: {{ "accept": "*/*", "content-type": "application/json" }},
+                    body: JSON.stringify(body)
+                }}
+            }},
+            {{
+                url: "https://testnet.kizzy.io/api/v2/place-bet-pvp/{pool_id}",
+                options: {{
+                    method: "POST",
+                    credentials: "include",
+                    headers: {{ "accept": "*/*", "content-type": "application/json" }},
+                    body: JSON.stringify(body)
+                }}
+            }}
+        ];
+        return (async function() {{
+            for (const c of candidates) {{
+                try {{
+                    const r = await fetch(c.url, c.options);
+                    if (!r.ok) continue;
+                    const text = await r.text();
+                    try {{
+                        return JSON.parse(text);
+                    }} catch (e) {{
+                        continue;
+                    }}
+                }} catch (e) {{
+                    continue;
+                }}
+            }}
+            throw new Error("All pvp betting endpoints failed");
+        }})();
         """
         try:
             return self.driver.execute_script(script)
@@ -205,23 +247,29 @@ class KizzyBot:
         Returns:
             Dict: The spreads data as a dictionary.
         """
-        endpoint = f"/api/v2/spreads/{platform}"
         script = f"""
-        return fetch("{endpoint}", {{
-            method: "GET",
-            credentials: "include"
-        }}).then(function(r) {{
-            if (!r.ok) {{
-                throw new Error("HTTP " + r.status + ": " + r.statusText);
-            }}
-            return r.text().then(function(text) {{
+        const urls = [
+            "https://rest-api.kizzy.io/app/spreads/{platform}"
+        ];
+        return (async function() {{
+            for (const url of urls) {{
                 try {{
-                    return JSON.parse(text);
+                    const r = await fetch(url, {{ method: "GET", credentials: "include" }});
+                    if (!r.ok) continue;
+                    const text = await r.text();
+                    try {{
+                        return JSON.parse(text);
+                    }} catch (e) {{
+                        // try next endpoint
+                        continue;
+                    }}
                 }} catch (e) {{
-                    throw new Error("Invalid JSON response: " + text.substring(0, 200) + "...");
+                    // try next endpoint
+                    continue;
                 }}
-            }});
-        }});
+            }}
+            throw new Error("All spread endpoints failed for {platform}");
+        }})();
         """
         try:
             return self.driver.execute_script(script)
@@ -241,25 +289,59 @@ class KizzyBot:
             Dict: The result of the bet as a dictionary.
         """
         script = f"""
-        var formData = new FormData();
-        formData.append("spreadPoolRangeID", "{spread_range_id}");
-        formData.append("amount", "{amount}");
-        return fetch("https://testnet.kizzy.io/api/v2/place-bet/spread", {{
-            method: "POST",
-            credentials: "include",
-            body: formData
-        }}).then(function(r) {{
-            if (!r.ok) {{
-                throw new Error("HTTP " + r.status + ": " + r.statusText);
-            }}
-            return r.text().then(function(text) {{
-                try {{
-                    return JSON.parse(text);
-                }} catch (e) {{
-                    throw new Error("Invalid JSON response: " + text.substring(0, 200) + "...");
+        const jsonPayload = {{ spreadPoolRangeID: {spread_range_id}, amount: {amount} }};
+        const buildFormData = () => {{
+            const fd = new FormData();
+            fd.append("spreadPoolRangeID", "{spread_range_id}");
+            fd.append("amount", "{amount}");
+            return fd;
+        }};
+        const candidates = [
+            {{
+                url: "https://rest-api.kizzy.io/app/place-bet-spread",
+                options: {{
+                    method: "POST",
+                    credentials: "include",
+                    headers: {{ "accept": "*/*", "content-type": "application/json" }},
+                    body: JSON.stringify(jsonPayload)
                 }}
-            }});
-        }});
+            }},
+            {{
+                url: "https://rest-api.kizzy.io/app/place-bet/spread",
+                options: {{
+                    method: "POST",
+                    credentials: "include",
+                    body: buildFormData()
+                }}
+            }},
+            {{
+                url: "https://testnet.kizzy.io/api/v2/place-bet/spread",
+                options: {{
+                    method: "POST",
+                    credentials: "include",
+                    body: buildFormData()
+                }}
+            }}
+        ];
+        return (async function() {{
+            for (const c of candidates) {{
+                try {{
+                    const r = await fetch(c.url, c.options);
+                    if (!r.ok) continue;
+                    const text = await r.text();
+                    try {{
+                        return JSON.parse(text);
+                    }} catch (e) {{
+                        // try next candidate
+                        continue;
+                    }}
+                }} catch (e) {{
+                    // try next candidate
+                    continue;
+                }}
+            }}
+            throw new Error("All spread betting endpoints failed");
+        }})();
         """
         try:
             return self.driver.execute_script(script)
@@ -274,6 +356,9 @@ class KizzyBot:
         Args:
             platform (str): The platform name.
         """
+        if platform.lower() == "youtube":
+            self.log("Skipping spreads for youtube (not available)")
+            return
         spreads_data = self.fetch_spreads(platform)
         self.log(f"Fetched {platform} spreads: {json.dumps(spreads_data)[:200]}...")
         spreads = (
@@ -283,8 +368,8 @@ class KizzyBot:
         )
 
         for spread in spreads:
-            spread_id = spread.get("ID")
-            self.log(f"Processing spread {spread_id}: {spread.get('title')}")
+            spread_id = spread.get("id")
+            self.log(f"Processing spread {spread_id}")
 
             spread_ranges = spread.get("spreadRanges")
             if not spread_ranges:
@@ -604,8 +689,9 @@ class KizzyBot:
             for platform in platforms:
                 self.log(f"Processing {platform} pools...")
                 self.process_pools(platform, skip_existing_bets)
-                self.log(f"Processing {platform} spreads...")
-                self.process_spreads(platform)
+                if platform.lower() != "youtube":
+                    self.log(f"Processing {platform} spreads...")
+                    self.process_spreads(platform)
             self.log("Checking for claimable rewards...")
             for x in range(5):
                 missions = self.get_rewards()
@@ -651,6 +737,34 @@ def run_bot_with_cookies(pkl_file: str, skip_existing_bets: bool = True) -> None
                 pass
 
 
+def open_user_with_cookies_only(pkl_file: str) -> None:
+    """
+    Open the browser for a specific cookie file and load cookies without running any actions.
+
+    Args:
+        pkl_file (str): Path to the pickle file containing cookies.
+    """
+    try:
+        print(f"\n=== Opening user with cookies: {pkl_file} ===")
+        bot = KizzyBot(cookies_path=pkl_file)
+        bot.start_browser()
+        bot.set_tutorial_flags_to_true()
+        if bot.load_cookies():
+            print("Cookies loaded and page refreshed. You should be logged in.")
+        else:
+            print("Failed to load cookies. Opening login page; please login manually.")
+            bot.manual_login()
+        input("\nBrowser is open. Press Enter to close the browser...")
+    except Exception as e:
+        print(f"Error opening user with {pkl_file}: {e}")
+    finally:
+        if "bot" in locals():
+            try:
+                bot.close()
+            except Exception:
+                pass
+
+
 def main():
     """
     Main entry point for running the KizzyBot on all available cookie files.
@@ -665,6 +779,28 @@ def main():
     print(f"Found {len(pkl_files)} cookie files:")
     for i, pkl_file in enumerate(pkl_files, 1):
         print(f"{i}. {pkl_file}")
+
+    # Choose action: open a single user with cookies only, or run the bot
+    while True:
+        action = input(
+            "\nChoose action:\n1. Open a specific user with cookies only\n2. Run bot on all users\nEnter 1 or 2: "
+        ).strip()
+
+        if action == "1":
+            while True:
+                selection = input(
+                    f"Enter the number of the user to open (1-{len(pkl_files)}): "
+                ).strip()
+                if selection.isdigit():
+                    idx = int(selection)
+                    if 1 <= idx <= len(pkl_files):
+                        open_user_with_cookies_only(pkl_files[idx - 1])
+                        return
+                print("Invalid selection. Please try again.")
+        elif action == "2":
+            break
+        else:
+            print("Invalid choice. Please enter 1 or 2.")
 
     # Ask about betting behaviour
     while True:
