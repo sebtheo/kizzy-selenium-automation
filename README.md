@@ -82,6 +82,34 @@ The Kizzy Bot is designed to automate various tasks on the Kizzy testnet platfor
    - **Option 1**: Run sequentially (one account at a time)
    - **Option 2**: Run in parallel (multiple accounts simultaneously)
 
+### Non-interactive CLI examples
+
+You can skip the interactive prompts by passing CLI flags.
+
+- Run on all users, skip pools already bet on, sequential execution:
+
+  ```bash
+  poetry run python kizzy/main.py -a 2 -b 1 -e 1
+  ```
+
+- Run on all users, bet on all pools (including already bet on), parallel execution:
+
+  ```bash
+  poetry run python kizzy/main.py --action 2 --betting-behaviour 2 --execution 2
+  ```
+
+- Open a specific user with cookies only (e.g. the 2nd `.pkl` file listed):
+
+  ```bash
+  poetry run python kizzy/main.py -a 1 -u 2
+  ```
+
+- Show help and all available flags:
+
+  ```bash
+  poetry run python kizzy/main.py -h
+  ```
+
 ### Cookie Management
 
 - Cookie files are stored in `kizzy/data/` as `.pkl` files
