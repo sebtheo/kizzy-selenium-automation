@@ -7,7 +7,7 @@ A Python-based automation tool for the Kizzy platform that handles betting on po
 The Kizzy Bot is designed to automate various tasks on the Kizzy testnet platform, including:
 
 - **Pool Betting**: Automatically places bets on Twitter and YouTube pools based on market dynamics
-- **Spread Betting**: Calculates and places strategic bets on spread ranges
+- **Spread Betting**: Calculates and places strategic bets on spread ranges (Twitter only)
 - **Reward Claiming**: Automatically claims available mission rewards and cycle rewards
 - **Multi-Account Support**: Can run multiple accounts simultaneously using different cookie files
 
@@ -16,7 +16,7 @@ The Kizzy Bot is designed to automate various tasks on the Kizzy testnet platfor
 ### Betting Strategies
 
 - **Pool Analysis**: Automatically determines whether to bet 'long' or 'short' based on existing pool positions
-- **Spread Calculations**: Uses mathematical algorithms to calculate optimal bet amounts for spread ranges
+- **Spread Calculations**: Uses mathematical algorithms to calculate optimal bet amounts for spread ranges (Twitter only)
 - **Risk Management**: Includes options to skip pools already bet on or bet on all available pools
 
 ### Automation Capabilities
@@ -98,8 +98,10 @@ The Kizzy Bot is designed to automate various tasks on the Kizzy testnet platfor
 
 ### Platforms Supported
 
-- Twitter pools and spreads
-- YouTube pools and spreads
+- **Twitter**: pools and spreads
+- **YouTube**: pools only (no spreads)
+
+Note: YouTube spreads are not available. The bot automatically skips fetching and processing spreads for YouTube.
 
 ## File Structure
 
