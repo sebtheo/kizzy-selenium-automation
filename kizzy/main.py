@@ -8,6 +8,8 @@ from typing import Dict, List, Set, Optional
 import math
 import glob
 import threading
+import argparse
+from datetime import datetime, timezone
 
 
 class KizzyBot:
@@ -42,6 +44,30 @@ class KizzyBot:
             msg (str): The message to log.
         """
         print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
+
+    def _parse_kizzy_datetime(self, value: Optional[str]) -> Optional[datetime]:
+        """
+        Parse Kizzy datetime strings. Expected like "YYYY-MM-DD HH:MM:SS" (UTC) or ISO variants.
+
+        Returns a timezone-aware UTC datetime, or None if parsing fails.
+        """
+        if not value or not isinstance(value, str):
+            return None
+        try:
+            # Handle trailing Z
+            iso_candidate = value.replace("Z", "+00:00")
+            dt = None
+            try:
+                dt = datetime.fromisoformat(iso_candidate)
+            except Exception:
+                dt = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            else:
+                dt = dt.astimezone(timezone.utc)
+            return dt
+        except Exception:
+            return None
 
     def start_browser(self) -> None:
         """
@@ -181,61 +207,74 @@ class KizzyBot:
         Returns:
             Dict: The result of the bet as a dictionary.
         """
-        payload = {"amount": amount, "parimutuelPoolID": pool_id, "side": side}
+        payload = {"side": side, "amount": str(amount), "parimutuelPoolID": pool_id}
         script = f"""
         const body = {json.dumps(payload)};
-        const candidates = [
-            {{
-                url: "https://rest-api.kizzy.io/app/place-bet-pvp/{pool_id}",
-                options: {{
-                    method: "POST",
-                    credentials: "include",
-                    headers: {{ "accept": "*/*", "content-type": "application/json" }},
-                    body: JSON.stringify(body)
-                }}
+        return fetch("https://rest-api.kizzy.io/app/place-bet-pvp/{pool_id}", {{
+            method: "POST",
+            credentials: "include",
+            headers: {{ 
+                "accept": "*/*", 
+                "content-type": "application/json" 
             }},
-            {{
-                url: "https://testnet.kizzy.io/api/v2/place-bet/pvp/{pool_id}",
-                options: {{
-                    method: "POST",
-                    credentials: "include",
-                    headers: {{ "accept": "*/*", "content-type": "application/json" }},
-                    body: JSON.stringify(body)
-                }}
-            }},
-            {{
-                url: "https://testnet.kizzy.io/api/v2/place-bet-pvp/{pool_id}",
-                options: {{
-                    method: "POST",
-                    credentials: "include",
-                    headers: {{ "accept": "*/*", "content-type": "application/json" }},
-                    body: JSON.stringify(body)
-                }}
+            body: JSON.stringify(body)
+        }}).then(function(r) {{
+            if (!r.ok) {{
+                throw new Error("HTTP " + r.status + ": " + r.statusText);
             }}
-        ];
-        return (async function() {{
-            for (const c of candidates) {{
+            return r.text().then(function(text) {{
                 try {{
-                    const r = await fetch(c.url, c.options);
-                    if (!r.ok) continue;
-                    const text = await r.text();
-                    try {{
-                        return JSON.parse(text);
-                    }} catch (e) {{
-                        continue;
-                    }}
+                    return JSON.parse(text);
                 }} catch (e) {{
-                    continue;
+                    throw new Error("Invalid JSON response: " + text.substring(0, 200) + "...");
                 }}
+            }});
+        }});
+        """
+        try:
+            result = self.driver.execute_script(script)
+            # Check if the response indicates success
+            if result.get("data", {}).get("result") == "success":
+                return {"success": True, "data": result}
+            else:
+                return {"success": False, "data": result}
+        except Exception as e:
+            # Suppress verbose error details; upstream caller will log a concise status
+            return {"success": False}
+
+    def fetch_pool_data(self, pool_id: int) -> Dict:
+        """
+        Fetch data for a specific pool (this is what the current place-bet-pvp endpoint actually does).
+
+        Args:
+            pool_id (int): The pool ID.
+
+        Returns:
+            Dict: The pool data as a dictionary.
+        """
+        script = f"""
+        return fetch("https://rest-api.kizzy.io/app/place-bet-pvp/{pool_id}", {{
+            method: "GET",
+            credentials: "include",
+            headers: {{ "accept": "*/*" }}
+        }}).then(function(r) {{
+            if (!r.ok) {{
+                throw new Error("HTTP " + r.status + ": " + r.statusText);
             }}
-            throw new Error("All pvp betting endpoints failed");
-        }})();
+            return r.text().then(function(text) {{
+                try {{
+                    return JSON.parse(text);
+                }} catch (e) {{
+                    throw new Error("Invalid JSON response: " + text.substring(0, 200) + "...");
+                }}
+            }});
+        }});
         """
         try:
             return self.driver.execute_script(script)
         except Exception as e:
-            self.log(f"Error placing bet on pool {pool_id}: {e}")
-            return {"success": False, "error": str(e)}
+            self.log(f"Error fetching pool {pool_id} data: {e}")
+            return {}
 
     def fetch_spreads(self, platform: str) -> Dict:
         """
@@ -346,8 +385,8 @@ class KizzyBot:
         try:
             return self.driver.execute_script(script)
         except Exception as e:
-            self.log(f"Error placing spread bet on range {spread_range_id}: {e}")
-            return {"success": False, "error": str(e)}
+            # Suppress verbose error details; upstream caller will log a concise status
+            return {"success": False}
 
     def process_spreads(self, platform: str) -> None:
         """
@@ -368,7 +407,19 @@ class KizzyBot:
         )
 
         for spread in spreads:
-            spread_id = spread.get("id")
+            spread_id = spread.get("id") or spread.get("ID")
+            close_at_str = spread.get("betCloseAt")
+            close_at = self._parse_kizzy_datetime(close_at_str)
+            now_utc = datetime.now(timezone.utc)
+            if close_at is None:
+                self.log(f"Skipping spread {spread_id}: invalid betCloseAt '{close_at_str}'")
+                continue
+            if now_utc >= close_at:
+                self.log(
+                    f"Skipping spread {spread_id}: betting closed at {close_at_str}"
+                )
+                continue
+
             self.log(f"Processing spread {spread_id}")
 
             spread_ranges = spread.get("spreadRanges")
@@ -426,12 +477,14 @@ class KizzyBot:
                 )
                 try:
                     result = self.place_spread_bet(bet["range_id"], bet["amount"])
-                    self.log(f"Bet result for range {bet['range_id']}: {result}")
+                    self.log(
+                        f"Bet result for range {bet['range_id']}: success={bool(result.get('success'))}"
+                    )
                     if result.get("success"):
                         self.active_spread_bet_ids.add(bet["range_id"])
-                except Exception as e:
+                except Exception:
                     self.log(
-                        f"Error placing spread bet on range {bet['range_id']}: {e}"
+                        f"Bet result for range {bet['range_id']}: success=False"
                     )
                 time.sleep(4)  # Wait between bets
 
@@ -478,8 +531,11 @@ class KizzyBot:
             skip_existing_bets (bool): Whether to skip pools already bet on.
         """
         pools_data = self.fetch_pools(platform)
-        self.log(f"Fetched {platform} pools: {json.dumps(pools_data)[:200]}...")
         pools = pools_data.get("poolsData", []) if isinstance(pools_data, dict) else []
+        
+        # Show pool count instead of verbose JSON dump
+        self.log(f"Fetched {platform} pools: {len(pools)} total pools")
+        
         for pool in pools:
             pool_id = pool.get("ID")
             if skip_existing_bets and pool_id in self.pre_market_bet_ids:
@@ -492,7 +548,9 @@ class KizzyBot:
                 f"{platform.title()} pool {pool_id}: Betting 15 on {side.upper()} (longs={longs}, shorts={shorts})"
             )
             bet_result = self.place_bet(pool_id, side)
-            self.log(f"Bet result for {platform} pool {pool_id}: {bet_result}")
+            self.log(
+                f"Bet result for {platform} pool {pool_id}: success={bool(bet_result.get('success'))}"
+            )
             time.sleep(5)  # Wait between bets
 
     def get_rewards(self) -> List[Dict]:
@@ -524,7 +582,7 @@ class KizzyBot:
         except Exception as e:
             self.log(f"Error fetching rewards: {e}")
             return []
-        self.log(f"Fetched rewards: {json.dumps(result)[:200]}...")
+        
         missions = []
         if not isinstance(result, dict):
             self.log("Error parsing missions: result is not a dict")
@@ -534,6 +592,14 @@ class KizzyBot:
             self.log("Error parsing missions: 'data' is not a dict")
             return missions
         missions = data.get("missions", [])
+        
+        # Show summary of rewards
+        total_missions = len(missions)
+        claimable_missions = [m for m in missions if m.get("claimEnabled") and not m.get("claimed")]
+        total_rewards = sum(m.get("reward", 0) for m in claimable_missions)
+        
+        self.log(f"Rewards Summary: {total_missions} total missions, {len(claimable_missions)} claimable, {total_rewards} total rewards")
+        
         cycle_data = data.get("cycleData", {})
         if isinstance(cycle_data, dict) and cycle_data.get("released", False):
             cycle_id = cycle_data.get("ID", 0)
@@ -559,6 +625,17 @@ class KizzyBot:
         """
         if missions is None:
             missions = self.get_rewards()
+
+        # Show summary before claiming
+        claimable = [
+            m for m in missions if m.get("claimEnabled") and not m.get("claimed")
+        ]
+        if not claimable:
+            self.log("No claimable mission rewards found.")
+            return
+            
+        total_rewards = sum(m.get("reward", 0) for m in claimable)
+        self.log(f"Claiming {len(claimable)} missions for {total_rewards} total rewards...")
 
         # First, try to claim the cycle if available
         cycle_id = None
@@ -606,12 +683,6 @@ class KizzyBot:
             time.sleep(2)
 
         # Then claim individual mission rewards
-        claimable = [
-            m for m in missions if m.get("claimEnabled") and not m.get("claimed")
-        ]
-        if not claimable:
-            self.log("No claimable mission rewards found.")
-            return
         for mission in claimable:
             mission_id = mission.get("id")
             # Try to get the correct cycleID: prefer mission['metrics']['cycleID'], fallback to mission['cycleDataID']
@@ -770,6 +841,43 @@ def main():
     Main entry point for running the KizzyBot on all available cookie files.
     Prompts the user for betting and execution mode preferences.
     """
+    parser = argparse.ArgumentParser(description="Kizzy Bot runner")
+    parser.add_argument(
+        "-a",
+        "--action",
+        choices=["1", "2"],
+        help=(
+            "1 = Open a specific user with cookies only; "
+            "2 = Run bot on all users"
+        ),
+    )
+    parser.add_argument(
+        "-u",
+        "--user-index",
+        type=int,
+        help=(
+            "When --action 1 is used, the 1-based index of the user to open "
+            "from the discovered cookie files"
+        ),
+    )
+    parser.add_argument(
+        "-b",
+        "--betting-behaviour",
+        "--betting-behavior",
+        dest="betting_behaviour",
+        choices=["1", "2"],
+        help=(
+            "1 = Skip pools already bet on (default); "
+            "2 = Bet on all pools (including already bet on)"
+        ),
+    )
+    parser.add_argument(
+        "-e",
+        "--execution",
+        choices=["1", "2"],
+        help=("1 = Run sequentially; 2 = Run in parallel"),
+    )
+    args = parser.parse_args()
     pkl_files = glob.glob("kizzy/data/*.pkl")
 
     if not pkl_files:
@@ -781,73 +889,85 @@ def main():
         print(f"{i}. {pkl_file}")
 
     # Choose action: open a single user with cookies only, or run the bot
-    while True:
-        action = input(
-            "\nChoose action:\n1. Open a specific user with cookies only\n2. Run bot on all users\nEnter 1 or 2: "
-        ).strip()
-
-        if action == "1":
-            while True:
-                selection = input(
-                    f"Enter the number of the user to open (1-{len(pkl_files)}): "
-                ).strip()
-                if selection.isdigit():
-                    idx = int(selection)
-                    if 1 <= idx <= len(pkl_files):
-                        open_user_with_cookies_only(pkl_files[idx - 1])
-                        return
-                print("Invalid selection. Please try again.")
-        elif action == "2":
-            break
-        else:
+    action = args.action
+    if action is None:
+        while True:
+            action = input(
+                "\nChoose action:\n1. Open a specific user with cookies only\n2. Run bot on all users\nEnter 1 or 2: "
+            ).strip()
+            if action in ("1", "2"):
+                break
             print("Invalid choice. Please enter 1 or 2.")
+
+    if action == "1":
+        if args.user_index is not None:
+            idx = int(args.user_index)
+            if 1 <= idx <= len(pkl_files):
+                open_user_with_cookies_only(pkl_files[idx - 1])
+                return
+            else:
+                print(
+                    f"--user-index must be between 1 and {len(pkl_files)}; falling back to prompt."
+                )
+        while True:
+            selection = input(
+                f"Enter the number of the user to open (1-{len(pkl_files)}): "
+            ).strip()
+            if selection.isdigit():
+                idx = int(selection)
+                if 1 <= idx <= len(pkl_files):
+                    open_user_with_cookies_only(pkl_files[idx - 1])
+                    return
+            print("Invalid selection. Please try again.")
+    # action == "2" continues
 
     # Ask about betting behaviour
-    while True:
-        bet_choice = input(
-            "\nChoose betting behaviour:\n1. Skip pools already bet on (default)\n2. Bet on all pools (including already bet on)\nEnter 1 or 2: "
-        ).strip()
+    bet_choice = args.betting_behaviour
+    if bet_choice is None:
+        while True:
+            bet_choice = input(
+                "\nChoose betting behaviour:\n1. Skip pools already bet on (default)\n2. Bet on all pools (including already bet on)\nEnter 1 or 2: "
+            ).strip()
+            if bet_choice in ("1", "2"):
+                break
+            print("Invalid choice. Please enter 1 or 2.")
+    if bet_choice == "1":
+        skip_existing_bets = True
+        print("Will skip pools already bet on.")
+    else:
+        skip_existing_bets = False
+        print("Will bet on all pools (including already bet on).")
 
-        if bet_choice == "1":
-            skip_existing_bets = True
-            print("Will skip pools already bet on.")
-            break
-        elif bet_choice == "2":
-            skip_existing_bets = False
-            print("Will bet on all pools (including already bet on).")
-            break
-        else:
+    choice = args.execution
+    if choice is None:
+        while True:
+            choice = input(
+                "\nChoose execution mode:\n1. Run sequentially\n2. Run in parallel\nEnter 1 or 2: "
+            ).strip()
+            if choice in ("1", "2"):
+                break
             print("Invalid choice. Please enter 1 or 2.")
 
-    while True:
-        choice = input(
-            "\nChoose execution mode:\n1. Run sequentially\n2. Run in parallel\nEnter 1 or 2: "
-        ).strip()
+    if choice == "1":
+        print("\n=== Running sequentially ===")
+        for pkl_file in pkl_files:
+            run_bot_with_cookies(pkl_file, skip_existing_bets)
+    else:
+        print("\n=== Running in parallel ===")
+        threads = []
+        for pkl_file in pkl_files:
+            thread = threading.Thread(
+                target=run_bot_with_cookies, args=(pkl_file, skip_existing_bets)
+            )
+            threads.append(thread)
+            thread.start()
+            # Small delay to prevent ChromeDriver conflicts
+            time.sleep(2)
 
-        if choice == "1":
-            print("\n=== Running sequentially ===")
-            for pkl_file in pkl_files:
-                run_bot_with_cookies(pkl_file, skip_existing_bets)
-            break
-        elif choice == "2":
-            print("\n=== Running in parallel ===")
-            threads = []
-            for pkl_file in pkl_files:
-                thread = threading.Thread(
-                    target=run_bot_with_cookies, args=(pkl_file, skip_existing_bets)
-                )
-                threads.append(thread)
-                thread.start()
-                # Small delay to prevent ChromeDriver conflicts
-                time.sleep(2)
-
-            # Wait for all threads to complete
-            for thread in threads:
-                thread.join()
-            print("\n=== All parallel executions completed ===")
-            break
-        else:
-            print("Invalid choice. Please enter 1 or 2.")
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+        print("\n=== All parallel executions completed ===")
 
 
 if __name__ == "__main__":
