@@ -27,6 +27,9 @@ format:
 # Clean up
 clean:
 	rm -rf .ruff_cache
+	rm -rf __pycache__
+	rm -rf kizzy/__pycache__
+	rm -rf .DS_Store
 
 # Non-interactive convenience targets
 
